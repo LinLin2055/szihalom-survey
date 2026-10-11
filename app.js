@@ -409,17 +409,15 @@ function buildPanel() {
     `<label><input type="checkbox" data-layer="${k}" ${on ? 'checked' : ''}><span class="swatch" style="border-color:${c};background:${c}33"></span>${l}</label>`).join('');
   document.querySelectorAll('[data-layer]').forEach((cb) => cb.addEventListener('change', () => layers[cb.dataset.layer].setVisible(cb.checked)));
 
-  // areas table
-  const chip = (st) => `<span class="chip ${st}">${{ surveyed: 'surveyed', partly: 'partly', pending: 'pending', noimage: 'image pending' }[st]}</span>`;
-  $('#areaTable').innerHTML = `<tr><th>Area</th><th class="n">Fenced ha</th><th>Survey</th><th class="n">Heaps</th><th class="n">m³</th></tr>` +
-    DATA.areas.map((a) => `<tr class="click" data-area="${a.id}"><td><b>${a.id}</b><br><span class="hint">${a.mv.join(', ')}</span></td>
-      <td class="n">${fmt(a.fenced_m2 / 1e4, 2)}</td><td>${chip(a.status)}<br><span class="hint">${shortDate(a.date)}</span></td>
-      <td class="n">${a.soil_n + a.sand_n || ''}</td><td class="n">${a.soil_n + a.sand_n ? fmt(a.soil_m3 + a.sand_m3, 1) : ''}${a.soil_novol ? `<br><span class="hint">+${a.soil_novol} pending</span>` : ''}</td></tr>`).join('');
-  document.querySelectorAll('[data-area]').forEach((tr) => tr.addEventListener('click', () => {
-    const f = areaSource.getFeatures().find((x) => x.get('id') === tr.dataset.area);
-    zoomTo(f, 0.3);
-    showPopup(ol.extent.getCenter(f.getGeometry().getExtent()), areaHtml(f.getProperties()), f);
+  // areas table, with three views: soil heaps / grass cut / machinery
+  document.querySelectorAll('#areaMode button').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll('#areaMode button').forEach((x) => x.classList.toggle('on', x === b));
+    renderAreas(b.dataset.mode);
+    if (b.dataset.mode === 'grass' && layers.grassCut) setLayer('grassCut', true);
   }));
+  renderAreas('heaps');
+  if (!layers.grassCut) document.querySelector('#areaMode [data-mode="grass"]').disabled = true;
+  if (!DATA.machines) document.querySelector('#areaMode [data-mode="machines"]').disabled = true;
 
   // heaps
   const sel = $('#heapArea');
@@ -430,14 +428,198 @@ function buildPanel() {
   $('#csv').addEventListener('click', downloadCsv);
   renderHeaps();
 
-  // tabs
+  // tabs (the machinery layers show only while the Machinery tab is open)
   document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => {
     document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('active', x === b));
     document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.id === 'tab-' + b.dataset.tab));
+    machinesActive(b.dataset.tab === 'machines');
   }));
+  if (DATA.machines) buildMachines();
+  else document.querySelector('.tabs [data-tab="machines"]').hidden = true;
   $('#panelToggle').addEventListener('click', () => { $('#panel').classList.toggle('hidden'); map.updateSize(); });
 
   buildProof();
+}
+
+// ------------------------------------------------------------------ machinery: where each machine worked, day by day
+const M_COLORS = { DZ: '#f9a825', EX1: '#ef6c00', EX2: '#c62828', T1: '#1e88e5', T2: '#3949ab', T3: '#00897b', T4: '#8e24aa' };
+const mColor = (s) => M_COLORS[s] || '#546e7a';
+let M = { day: 0, play: null, anim: null, markers: {}, routes: [], active: false, fitted: false };
+
+function buildMachines() {
+  const md = DATA.machines;
+  const all = new ol.source.Vector();
+  md.days.forEach((d) => d.machines.forEach((m) => m.places.forEach((p) =>
+    all.addFeature(new ol.Feature({ geometry: new ol.geom.Point([p.x, p.y]) })))));
+  layers.mAll = new ol.layer.Vector({ source: all, visible: false, zIndex: 30,
+    style: new S.Style({ image: new S.Circle({ radius: 3, fill: new S.Fill({ color: 'rgba(255,255,255,.55)' }),
+      stroke: new S.Stroke({ color: 'rgba(31,56,100,.7)', width: 1 }) }) }) });
+  layers.mRoutes = new ol.layer.Vector({ source: new ol.source.Vector(), visible: false, zIndex: 31,
+    style: (f) => [new S.Style({ stroke: new S.Stroke({ color: 'rgba(0,0,0,.45)', width: 5 }) }),
+      new S.Style({ stroke: new S.Stroke({ color: mColor(f.get('short')), width: 3, lineDash: [10, 7] }) })] });
+  layers.mMachines = new ol.layer.Vector({ source: new ol.source.Vector(), visible: false, zIndex: 32,
+    style: (f) => new S.Style({
+      image: new S.Circle({ radius: 14, fill: new S.Fill({ color: mColor(f.get('short')) }), stroke: new S.Stroke({ color: '#fff', width: 2.5 }) }),
+      text: new S.Text({ text: f.get('short'), font: '700 10px "Segoe UI", system-ui, sans-serif', fill: new S.Fill({ color: '#fff' }) }) }) });
+  [layers.mAll, layers.mRoutes, layers.mMachines].forEach((l) => map.addLayer(l));
+
+  const first = md.days[0].date, last = md.days[md.days.length - 1].date;
+  const range = `${shortDate(first)} – ${new Date(last + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  $('#mSummary').innerHTML =
+    `<div class="kpi"><div class="v">${md.machine_days}</div><div class="l">machine-days with marked positions</div></div>` +
+    `<div class="kpi"><div class="v">${fmt(md.hours, 0)} h</div><div class="l">machine-hours logged</div></div>` +
+    `<div class="kpi wide"><div class="v">${range}</div><div class="l">${md.days.length} working days · ${md.machines.length} machines · PO ${md.po}</div></div>`;
+  const sl = $('#mSlider');
+  sl.max = md.days.length - 1;
+  sl.addEventListener('input', () => { stopPlay(); showDay(+sl.value); });
+  $('#mPrev').addEventListener('click', () => { stopPlay(); showDay(Math.max(0, M.day - 1)); });
+  $('#mNext').addEventListener('click', () => { stopPlay(); showDay(Math.min(md.days.length - 1, M.day + 1)); });
+  $('#mPlay').addEventListener('click', () => (M.play ? stopPlay() : startPlay()));
+}
+
+function machinesActive(on) {
+  if (!DATA.machines) return;
+  M.active = on;
+  ['mAll', 'mRoutes', 'mMachines'].forEach((k) => layers[k].setVisible(on));
+  if (!on) { stopPlay(); cancelAnimationFrame(M.anim); M.anim = null; return; }
+  closePopup();
+  if (!M.fitted) {
+    map.getView().fit(layers.mAll.getSource().getExtent(), { padding: [60, 60, 60, 60], duration: 600 });
+    M.fitted = true;
+  }
+  showDay(M.day, true);
+}
+
+function startPlay() {
+  const n = DATA.machines.days.length;
+  if (M.day >= n - 1) showDay(0);
+  $('#mPlay').textContent = '❚❚ Pause';
+  M.play = setInterval(() => {
+    if (M.day >= n - 1) { stopPlay(); return; }
+    showDay(M.day + 1);
+  }, 3200);
+}
+
+function stopPlay() {
+  if (M.play) clearInterval(M.play);
+  M.play = null;
+  $('#mPlay').textContent = '▶ Play';
+}
+
+function showDay(i, instant) {
+  const md = DATA.machines;
+  const day = md.days[i];
+  M.day = i;
+  $('#mSlider').value = i;
+  const dt = new Date(day.date + 'T12:00:00');
+  $('#mDay').innerHTML = `${dt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+    <small>Day ${i + 1} of ${md.days.length} · ${day.machines.length} machines · ${fmt(day.machines.reduce((s, m) => s + (m.hours || 0), 0), 0)} machine-hours</small>`;
+  $('#mList').innerHTML = day.machines.map((m) => {
+    const where = [...new Set(m.places.map((p) => p.where))].join(' → ');
+    const work = [...new Set(m.places.map((p) => p.work).filter(Boolean))].join('; ');
+    return `<div class="mrow" data-m="${m.short}"><div class="mbadge" style="background:${mColor(m.short)}">${m.short}</div>
+      <div class="t"><b>${m.name}</b><span>${where}${m.shuttle ? ` · all-day shuttle${m.shuttle_km ? `, ${fmt(m.shuttle_km, 1)} km per round trip` : ''}` : ''}</span>
+      ${work ? `<br><span>${work}</span>` : ''}</div><div class="n">${m.hours ? fmt(m.hours, 0) + ' h' : ''}</div></div>`;
+  }).join('');
+  document.querySelectorAll('.mrow').forEach((r) => r.addEventListener('click', () => {
+    const f = M.markers[r.dataset.m];
+    if (f) map.getView().animate({ center: f.getGeometry().getCoordinates(), resolution: Math.min(map.getView().getResolution(), 1.2), duration: 500 });
+  }));
+  if (!M.active) return;
+
+  // routes of the shuttling trucks
+  const rs = layers.mRoutes.getSource();
+  rs.clear();
+  M.routes = [];
+  day.machines.forEach((m) => {
+    if (m.shuttle && m.places.length > 1) {
+      const line = new ol.geom.LineString(m.places.map((p) => [p.x, p.y]));
+      rs.addFeature(new ol.Feature({ geometry: line, short: m.short }));
+      M.routes.push({ short: m.short, line, offset: 0.55 * M.routes.length });   // trucks on one route run apart
+    }
+  });
+  // markers: glide from yesterday's position to today's
+  const ms = layers.mMachines.getSource();
+  const from = {}, to = {};
+  day.machines.forEach((m) => {
+    to[m.short] = [m.places[0].x, m.places[0].y];
+    const old = M.markers[m.short];
+    from[m.short] = old ? old.getGeometry().getCoordinates() : to[m.short];
+  });
+  Object.keys(M.markers).forEach((k) => { if (!(k in to)) { ms.removeFeature(M.markers[k]); delete M.markers[k]; } });
+  Object.keys(to).forEach((k) => {
+    if (!M.markers[k]) { M.markers[k] = new ol.Feature({ geometry: new ol.geom.Point(from[k]), short: k }); ms.addFeature(M.markers[k]); }
+  });
+  const t0 = performance.now(), GLIDE = instant ? 1 : 1100;
+  const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
+  cancelAnimationFrame(M.anim);
+  const frame = (now) => {
+    const t = Math.min(1, (now - t0) / GLIDE);
+    Object.keys(to).forEach((k) => {
+      let c;
+      if (t < 1) {
+        const e = ease(t);
+        c = [from[k][0] + (to[k][0] - from[k][0]) * e, from[k][1] + (to[k][1] - from[k][1]) * e];
+      } else {
+        // after arriving: shuttling trucks run back and forth along their route
+        const r = M.routes.find((x) => x.short === k);
+        if (r) {
+          const phase = ((now - t0 - GLIDE) / 7000 + r.offset) % 2;
+          c = r.line.getCoordinateAt(phase < 1 ? phase : 2 - phase);
+        } else c = to[k];
+      }
+      M.markers[k].getGeometry().setCoordinates(c);
+    });
+    M.anim = M.active ? requestAnimationFrame(frame) : null;
+  };
+  M.anim = requestAnimationFrame(frame);
+}
+
+function setLayer(key, on) {
+  if (!layers[key]) return;
+  layers[key].setVisible(on);
+  const cb = document.querySelector(`[data-layer="${key}"]`);
+  if (cb) cb.checked = on;
+}
+
+function renderAreas(mode) {
+  const chip = (st) => `<span class="chip ${st}">${{ surveyed: 'surveyed', partly: 'partly', pending: 'pending', noimage: 'image pending' }[st]}</span>`;
+  const head = { heaps: ['Heaps', 'm³'], grass: ['Cut ha', '% cut'], machines: ['Machine-days', 'Last day'] }[mode];
+  const cols = (a) => {
+    if (mode === 'heaps') {
+      return [a.soil_n + a.sand_n || '', (a.soil_n + a.sand_n ? fmt(a.soil_m3 + a.sand_m3, 1) : '') +
+        (a.soil_novol ? `<br><span class="hint">+${a.soil_novol} pending</span>` : '')];
+    }
+    if (mode === 'grass') {
+      return a.cut_m2 ? [fmt(a.cut_m2 / 1e4, 2), `${fmt(100 * a.cut_m2 / a.fenced_m2, 0)}%`] : ['', ''];
+    }
+    return a.machine_days ? [a.machine_days, shortDate(a.machine_last)] : ['', ''];
+  };
+  $('#areaTable').innerHTML = `<tr><th>Area</th><th class="n">${DATA.areas.some((a) => a.drawn) ? 'Area ha' : 'Fenced ha'}</th><th>Survey</th><th class="n">${head[0]}</th><th class="n">${head[1]}</th></tr>` +
+    DATA.areas.map((a) => {
+      const [c1, c2] = cols(a);
+      return `<tr class="click" data-area="${a.id}"><td><b>${a.id}</b><br><span class="hint">${a.mv.join(', ')}</span></td>
+      <td class="n">${fmt(a.fenced_m2 / 1e4, 2)}</td><td>${chip(a.status)}<br><span class="hint">${shortDate(a.date)}</span></td>
+      <td class="n">${c1}</td><td class="n">${c2}</td></tr>`;
+    }).join('') + areaTotals(mode);
+  document.querySelectorAll('[data-area]').forEach((tr) => tr.addEventListener('click', () => {
+    const f = areaSource.getFeatures().find((x) => x.get('id') === tr.dataset.area);
+    zoomTo(f, 0.3);
+    showPopup(ol.extent.getCenter(f.getGeometry().getExtent()), areaHtml(f.getProperties()), f);
+  }));
+}
+
+function areaTotals(mode) {
+  const sum = (k) => DATA.areas.reduce((s, a) => s + (a[k] || 0), 0);
+  if (mode === 'grass' && DATA.grass_cut) {
+    return `<tr><td colspan="3"><b>Total ground marked as cut</b><br><span class="hint">a strip marked twice counts once</span></td>
+      <td class="n"><b>${fmt(DATA.grass_cut.covered_m2 / 1e4, 2)}</b></td><td></td></tr>`;
+  }
+  if (mode === 'machines' && DATA.machines) {
+    return `<tr><td colspan="3"><b>All machine-days</b><br><span class="hint">incl. pickup points outside the fences</span></td>
+      <td class="n"><b>${DATA.machines.machine_days}</b></td><td></td></tr>`;
+  }
+  return `<tr><td colspan="3"><b>Total</b></td><td class="n"><b>${sum('soil_n') + sum('sand_n')}</b></td><td class="n"><b>${fmt(sum('soil_m3') + sum('sand_m3'), 1)}</b></td></tr>`;
 }
 
 function filteredHeaps() {

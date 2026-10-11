@@ -81,7 +81,7 @@ button { font: inherit; cursor: pointer; }
 
 .tabs { display: flex; border-bottom: 1px solid var(--line); flex: none; overflow-x: auto; }
 .tabs button {
-  flex: 1; padding: 11px 8px; border: 0; background: transparent; color: var(--muted); font-weight: 600; white-space: nowrap;
+  flex: 1; padding: 11px 6px; border: 0; background: transparent; color: var(--muted); font-weight: 600; white-space: nowrap; font-size: 13px;
   border-bottom: 2px solid transparent;
 }
 .tabs button.active { color: var(--navy); border-bottom-color: var(--navy); }
@@ -116,6 +116,26 @@ table.grid tr.sel { background: #e3eaf6; }
 .chip.partly { background: var(--part); }
 .chip.pending { background: var(--pend); }
 .chip.noimage { background: #6b7a99; }
+
+.seg { display: flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; margin-bottom: 8px; }
+.seg button { flex: 1; padding: 7px 4px; border: 0; background: var(--card); color: var(--muted); font-weight: 600; font-size: 13px; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: var(--navy); color: #fff; }
+
+.player { display: flex; gap: 6px; margin: 14px 0 6px; }
+.player button { padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); }
+.player button.play { flex: 1; background: var(--navy); color: #fff; border-color: var(--navy); font-weight: 600; }
+#mSlider { width: 100%; accent-color: var(--navy); }
+.mday { font-size: 17px; font-weight: 700; color: var(--navy); margin: 8px 0 2px; }
+.mday small { display: block; font-size: 12.5px; font-weight: 400; color: var(--muted); }
+.mrow { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+.mrow:hover { background: #f3f6fb; }
+.mbadge { flex: none; width: 34px; height: 34px; border-radius: 50%; color: #fff; font-size: 11px; font-weight: 700;
+  display: grid; place-items: center; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.2); }
+.mrow .t { flex: 1; min-width: 0; font-size: 13px; }
+.mrow .t b { display: block; }
+.mrow .t span { color: var(--muted); }
+.mrow .n { flex: none; font-weight: 600; white-space: nowrap; font-size: 13px; }
 
 .heap-tools { display: flex; gap: 6px; margin-bottom: 10px; }
 .heap-tools select { flex: 1; font: inherit; padding: 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); }

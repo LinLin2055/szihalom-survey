@@ -39,6 +39,7 @@
       <button role="tab" data-tab="overview" class="active">Overview</button>
       <button role="tab" data-tab="areas">Areas</button>
       <button role="tab" data-tab="heaps">Soil heaps</button>
+      <button role="tab" data-tab="machines">Machinery</button>
       <button role="tab" data-tab="proof">Method &amp; proof</button>
     </nav>
 
@@ -57,8 +58,26 @@
     </section>
 
     <section id="tab-areas" class="tab">
+      <div class="seg" id="areaMode" role="group" aria-label="What to show per area">
+        <button data-mode="heaps" class="on">Soil heaps</button>
+        <button data-mode="grass">Grass cut</button>
+        <button data-mode="machines">Machinery</button>
+      </div>
       <p class="hint">Areas as numbered in the design drawing (by MV station). Click a row to go there.</p>
       <table class="grid" id="areaTable"></table>
+    </section>
+
+    <section id="tab-machines" class="tab">
+      <div id="mSummary" class="kpis"></div>
+      <div class="player">
+        <button id="mPrev" aria-label="Previous day" title="Previous day">◀</button>
+        <button id="mPlay" class="play">▶ Play</button>
+        <button id="mNext" aria-label="Next day" title="Next day">▶</button>
+      </div>
+      <input id="mSlider" type="range" min="0" max="0" value="0" aria-label="Day">
+      <div id="mDay" class="mday"></div>
+      <div id="mList"></div>
+      <p class="hint">Positions as marked on site in our machinery worklog. Trucks marked “all-day shuttle” drove between the places shown all day; the moving dot illustrates the route, not the exact timing.</p>
     </section>
 
     <section id="tab-heaps" class="tab">
