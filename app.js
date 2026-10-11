@@ -117,18 +117,19 @@ function areaStyle(f, res) {
   const st = f.get('status');
   const key = st + (res < 6 ? 'L' : '');
   if (!areaStyleCache[key]) {
-    const col = st === 'pending' ? '#c9ced8' : '#ffffff';
+    const noImg = st === 'pending' || st === 'noimage';
+    const col = noImg ? '#c9ced8' : '#ffffff';
     areaStyleCache[key] = [
       new S.Style({ stroke: new S.Stroke({ color: 'rgba(15,30,60,.65)', width: 4.5 }) }),
       new S.Style({
-        stroke: new S.Stroke({ color: col, width: 2, lineDash: st === 'pending' ? [8, 6] : undefined }),
-        fill: new S.Fill({ color: st === 'pending' ? 'rgba(120,130,150,.18)' : 'rgba(0,0,0,0)' }),
+        stroke: new S.Stroke({ color: col, width: 2, lineDash: noImg ? [8, 6] : undefined }),
+        fill: new S.Fill({ color: noImg ? 'rgba(120,130,150,.18)' : 'rgba(0,0,0,0)' }),
       }),
     ];
   }
   const label = new S.Style({
     text: new S.Text({
-      text: f.get('id') + (f.get('status') === 'pending' && res < 3 ? '\nsurvey pending' : ''),
+      text: f.get('id') + (res < 3 ? ({ pending: '\nsurvey pending', noimage: '\nimage pending' }[f.get('status')] || '') : ''),
       font: `700 ${res > 4 ? 13 : 16}px "Segoe UI", system-ui, sans-serif`,
       fill: new S.Fill({ color: '#fff' }), stroke: new S.Stroke({ color: 'rgba(15,30,60,.85)', width: 4 }),
       overflow: true,
@@ -263,13 +264,13 @@ function heapHtml(p) {
 }
 
 function areaHtml(a) {
-  const st = { surveyed: 'Surveyed', partly: 'Partly surveyed', pending: 'Survey pending' }[a.status];
+  const st = { surveyed: 'Surveyed', partly: 'Partly surveyed', pending: 'Survey pending', noimage: 'Measured, image pending' }[a.status];
   return `<h4>Area ${a.id}</h4><table>
     <tr><td>Status</td><td><span class="chip ${a.status}">${st}</span></td></tr>
     <tr><td>MV stations</td><td>${a.mv.join(', ') || '–'}</td></tr>
     <tr><td>Fenced area (drawing)</td><td>${fmt(a.fenced_m2 / 1e4, 2)} ha</td></tr>
     ${a.drone_fence_m2 ? `<tr><td>Fence measured by drone</td><td>${fmt(a.drone_fence_m2 / 1e4, 2)} ha</td></tr>` : ''}
-    <tr><td>Flight</td><td>${a.date || (a.status === 'pending' ? '–' : 'not stated')}</td></tr>
+    <tr><td>Flight</td><td>${a.date || (a.status === 'pending' || a.status === 'noimage' ? '–' : 'not stated')}</td></tr>
     <tr><td>Soil heaps</td><td>${a.soil_n} · ${fmt(a.soil_m3, 1)} m³</td></tr>
     ${a.sand_n ? `<tr><td>Bedding sand</td><td>${a.sand_n} · ${fmt(a.sand_m3, 1)} m³</td></tr>` : ''}
     ${a.note ? `<tr><td colspan="2"><i>${a.note}</i></td></tr>` : ''}
@@ -380,7 +381,7 @@ function buildPanel() {
   document.querySelectorAll('[data-layer]').forEach((cb) => cb.addEventListener('change', () => layers[cb.dataset.layer].setVisible(cb.checked)));
 
   // areas table
-  const chip = (st) => `<span class="chip ${st}">${{ surveyed: 'surveyed', partly: 'partly', pending: 'pending' }[st]}</span>`;
+  const chip = (st) => `<span class="chip ${st}">${{ surveyed: 'surveyed', partly: 'partly', pending: 'pending', noimage: 'image pending' }[st]}</span>`;
   $('#areaTable').innerHTML = `<tr><th>Area</th><th class="n">Fenced ha</th><th>Survey</th><th class="n">Heaps</th><th class="n">m³</th></tr>` +
     DATA.areas.map((a) => `<tr class="click" data-area="${a.id}"><td><b>${a.id}</b><br><span class="hint">${a.mv.join(', ')}</span></td>
       <td class="n">${fmt(a.fenced_m2 / 1e4, 2)}</td><td>${chip(a.status)}<br><span class="hint">${shortDate(a.date)}</span></td>

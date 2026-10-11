@@ -115,6 +115,7 @@ table.grid tr.sel { background: #e3eaf6; }
 .chip.surveyed { background: var(--ok); }
 .chip.partly { background: var(--part); }
 .chip.pending { background: var(--pend); }
+.chip.noimage { background: #6b7a99; }
 
 .heap-tools { display: flex; gap: 6px; margin-bottom: 10px; }
 .heap-tools select { flex: 1; font: inherit; padding: 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); }
