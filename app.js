@@ -268,7 +268,7 @@ function areaHtml(a) {
   return `<h4>Area ${a.id}</h4><table>
     <tr><td>Status</td><td><span class="chip ${a.status}">${st}</span></td></tr>
     <tr><td>MV stations</td><td>${a.mv.join(', ') || '–'}</td></tr>
-    <tr><td>Fenced area (drawing)</td><td>${fmt(a.fenced_m2 / 1e4, 2)} ha</td></tr>
+    <tr><td>${a.drawn ? 'Area (our outline)' : 'Fenced area (drawing)'}</td><td>${fmt(a.fenced_m2 / 1e4, 2)} ha</td></tr>
     ${a.drone_fence_m2 ? `<tr><td>Fence measured by drone</td><td>${fmt(a.drone_fence_m2 / 1e4, 2)} ha</td></tr>` : ''}
     <tr><td>Flight</td><td>${a.date || (a.status === 'pending' || a.status === 'noimage' ? '–' : 'not stated')}</td></tr>
     <tr><td>Soil heaps</td><td>${a.soil_n} · ${fmt(a.soil_m3, 1)} m³</td></tr>
