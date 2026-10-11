@@ -613,7 +613,7 @@ function showDay(i, instant) {
     const work = [...new Set(m.places.map((p) => p.work).filter(Boolean))].join('; ');
     const route = m.path_m > 30 ? ` · ${fmt(m.path_m / 1000, 1)} km along the roads` : '';
     return `<div class="mrow" data-m="${m.short}"><div class="mpic"><img src="${svgUrl(sideSvg(mType(m.name), mColor(m.short)))}" alt=""><span style="background:${mColor(m.short)}">${m.short}</span></div>
-      <div class="t"><b>${m.name}</b><span>${where}${m.shuttle ? ` · all-day shuttle${m.shuttle_km ? `, ${fmt(m.shuttle_km, 1)} km per round trip` : ''}` : route}</span>
+      <div class="t"><b>${m.name}</b><span>${where}${m.shuttle ? ` · all-day shuttle${m.shuttle_km ? `, ${fmt(m.shuttle_km, 1)} km per round trip (logged)` : ''}` : route}</span>
       ${work ? `<br><span>${work}</span>` : ''}</div><div class="n">${m.hours ? fmt(m.hours, 0) + ' h' : ''}</div></div>`;
   }).join('');
   document.querySelectorAll('.mrow').forEach((r) => r.addEventListener('click', () => {
