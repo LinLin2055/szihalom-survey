@@ -189,6 +189,21 @@ function buildMap() {
   heapSource.forEachFeature((f) => f.set('kind', 'heap'));
   layers.heaps = new ol.layer.Vector({ source: heapSource, style: heapStyle, declutter: false });
 
+  // grass already cut, as marked by our crew in the Fűvágás app (off by default)
+  if (DATA.grass_cut) {
+    const gsrc = new ol.source.Vector({ features: gj.readFeatures(DATA.grass_cut.features) });
+    gsrc.forEachFeature((f) => f.set('kind', 'cut'));
+    layers.grassCut = new ol.layer.Vector({
+      source: gsrc, visible: false,
+      style: (f, res) => new S.Style({
+        stroke: new S.Stroke({ color: '#00c853', width: 1.5 }),
+        fill: new S.Fill({ color: 'rgba(0,200,83,.28)' }),
+        text: res < 0.8 ? new S.Text({ text: shortDate(f.get('date')), font: '600 12px "Segoe UI", system-ui, sans-serif',
+          fill: new S.Fill({ color: '#fff' }), stroke: new S.Stroke({ color: '#0b5d1e', width: 3 }), overflow: true }) : undefined,
+      }),
+    });
+  }
+
   layers.fences = lines(DATA.dwg.fences, 'rgba(255,235,59,.9)', 1.5, 30);
   layers.roads = lines(DATA.dwg.roads, 'rgba(255,255,255,.75)', 1, 6);
   layers.tables = lines(DATA.dwg.tables, 'rgba(0,229,255,.8)', 1, 2);
@@ -217,7 +232,7 @@ function buildMap() {
   map = new ol.Map({
     target: 'map',
     layers: [layers.satellite, layers.drone, layers.roads, layers.tables, layers.fences, layers.droneFences,
-      layers.areas, layers.heaps, layers.mv, layers.select],
+      ...(layers.grassCut ? [layers.grassCut] : []), layers.areas, layers.heaps, layers.mv, layers.select],
     overlays: [popup],
     view: new ol.View({ projection: UTM, maxResolution: 40, minResolution: 0.006, constrainResolution: false }),
     controls: ol.control.defaults.defaults({ rotate: false, attributionOptions: { collapsible: true } })
@@ -232,7 +247,7 @@ function buildMap() {
   map.on('singleclick', onClick);
   map.on('pointermove', (e) => {
     if (e.dragging || measuring) return;
-    const hit = map.hasFeatureAtPixel(e.pixel, { layerFilter: (l) => l === layers.heaps || l === layers.areas });
+    const hit = map.hasFeatureAtPixel(e.pixel, { layerFilter: (l) => l === layers.heaps || l === layers.areas || l === layers.grassCut });
     map.getTargetElement().style.cursor = hit ? 'pointer' : '';
   });
   $('#popup .popup-close').addEventListener('click', closePopup);
@@ -263,6 +278,13 @@ function heapHtml(p) {
   </table><div class="src">Survey company record “${p.name || ''}” · ${p.source}</div>`;
 }
 
+function cutHtml(p) {
+  return `<h4>Grass cut</h4><table>
+    <tr><td>Date</td><td>${p.date ? new Date(p.date + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : '–'}</td></tr>
+    <tr><td>Area of this mark</td><td>${fmt(p.area_m2, 0)} m²</td></tr>
+  </table><div class="src">Marked on site by our crew in the grass-cutting app.</div>`;
+}
+
 function areaHtml(a) {
   const st = { surveyed: 'Surveyed', partly: 'Partly surveyed', pending: 'Survey pending', noimage: 'Measured, image pending' }[a.status];
   return `<h4>Area ${a.id}</h4><table>
@@ -279,14 +301,17 @@ function areaHtml(a) {
 
 function onClick(e) {
   if (measuring) return;
-  let hit = null;
+  // priority: heap > cut-grass mark > area
+  let hit = null, rank = 0;
   map.forEachFeatureAtPixel(e.pixel, (f, l) => {
-    if (l === layers.heaps) { hit = f; return true; }
-    if (l === layers.areas && !hit) hit = f;
-    return false;
-  }, { hitTolerance: 3, layerFilter: (l) => l === layers.heaps || l === layers.areas });
+    const r = l === layers.heaps ? 3 : l === layers.grassCut ? 2 : 1;
+    if (r > rank) { hit = f; rank = r; }
+    return rank === 3;
+  }, { hitTolerance: 3, layerFilter: (l) => l === layers.heaps || l === layers.areas || l === layers.grassCut });
   if (!hit) { closePopup(); return; }
-  if (hit.get('kind') === 'heap') showPopup(e.coordinate, heapHtml(hit.getProperties()), hit);
+  const kind = hit.get('kind');
+  if (kind === 'heap') showPopup(e.coordinate, heapHtml(hit.getProperties()), hit);
+  else if (kind === 'cut') showPopup(e.coordinate, cutHtml(hit.getProperties()), hit);
   else showPopup(e.coordinate, areaHtml(hit.getProperties()), hit);
 }
 
@@ -376,6 +401,10 @@ function buildPanel() {
     ['droneFences', 'Fence lines measured by drone', '#00e676', false],
     ['mv', 'MV stations', '#1f3864', true],
   ];
+  if (layers.grassCut) {
+    const g = DATA.grass_cut;
+    items.splice(4, 0, ['grassCut', `Grass cut so far – our worklog (${fmt(g.covered_m2 / 1e4, 2)} ha, ${g.n} areas)`, '#00c853', false]);
+  }
   $('#layerList').innerHTML = items.map(([k, l, c, on]) =>
     `<label><input type="checkbox" data-layer="${k}" ${on ? 'checked' : ''}><span class="swatch" style="border-color:${c};background:${c}33"></span>${l}</label>`).join('');
   document.querySelectorAll('[data-layer]').forEach((cb) => cb.addEventListener('change', () => layers[cb.dataset.layer].setVisible(cb.checked)));
@@ -469,6 +498,10 @@ function buildProof() {
     <p class="hint">Area 2.2: the survey company's fence line leaves out the south corner with the battery storage yard, hence the larger difference.</p>
     <h3>Check 2 · Independent re-measurement of the heaps</h3>
     <p>We recomputed the footprint of all ${s.heap_area_check.n} heaps from their outlines: the median difference to the survey company's figure is ${fmt(s.heap_area_check.median_pct, 2)}% (largest ${fmt(s.heap_area_check.max_pct, 1)}%, on the smallest heaps). Use the measuring tool to check any heap yourself.</p>
+    ${DATA.grass_cut ? `<h3>Grass cut so far (separate layer)</h3>
+    <p>Areas our crew marked as cut on site in our grass-cutting app, ${datesInWords(DATA.grass_cut.dates)}:
+    ${DATA.grass_cut.n} areas covering <b>${fmt(DATA.grass_cut.covered_m2 / 1e4, 2)} ha</b> of ground (a strip marked twice counts once).
+    State of ${new Date(DATA.grass_cut.taken).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}. Switch it on under Overview → Map layers.</p>` : ''}
     <h3>Check 3 · The original files</h3>
     <p>Each image is identified by its SHA-256 fingerprint; anyone holding the survey files can confirm they are the same (Windows: <code>certutil -hashfile file SHA256</code>).</p>
     <table class="grid"><tr><th>Image</th><th>Flight</th><th class="n">cm/px</th></tr>${imgRows}</table>
