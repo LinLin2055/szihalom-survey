@@ -37,7 +37,8 @@ button { font: inherit; cursor: pointer; }
   padding: 28px 26px 22px; box-shadow: 0 20px 60px rgba(0,0,0,.35);
   display: flex; flex-direction: column; gap: 8px;
 }
-.lock-card .brand { color: var(--navy); }
+.lock-logo { height: 54px; width: auto; align-self: flex-start; margin: 0 0 6px -2px; }
+.top-logo { height: 30px; width: auto; flex: none; }
 .lock-card h1 { margin: 2px 0 0; font-size: 24px; letter-spacing: -.01em; }
 .lock-card .sub { margin: 0 0 14px; color: var(--muted); }
 .lock-card label { font-weight: 600; font-size: 13px; }
@@ -158,6 +159,7 @@ table.grid tr.sel { background: #e3eaf6; }
   .layout { flex-direction: column-reverse; }
   .panel { width: 100%; height: 46%; border-right: 0; border-top: 1px solid var(--line); }
   .top .title { font-size: 14px; }
+  .top-logo { height: 24px; }
   .tab { padding: 10px 14px 18px; }
   .kpi .v { font-size: 17px; }
 }
