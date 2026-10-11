@@ -130,8 +130,9 @@ table.grid tr.sel { background: #e3eaf6; }
 .mday small { display: block; font-size: 12.5px; font-weight: 400; color: var(--muted); }
 .mrow { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
 .mrow:hover { background: #f3f6fb; }
-.mbadge { flex: none; width: 34px; height: 34px; border-radius: 50%; color: #fff; font-size: 11px; font-weight: 700;
-  display: grid; place-items: center; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.2); }
+.mpic { flex: none; width: 64px; position: relative; }
+.mpic img { width: 64px; height: 40px; display: block; }
+.mpic span { position: absolute; left: 0; bottom: -4px; color: #fff; font-size: 10px; font-weight: 700; padding: 0 5px; border-radius: 6px; }
 .mrow .t { flex: 1; min-width: 0; font-size: 13px; }
 .mrow .t b { display: block; }
 .mrow .t span { color: var(--muted); }

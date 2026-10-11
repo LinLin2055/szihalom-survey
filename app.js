@@ -442,9 +442,82 @@ function buildPanel() {
 }
 
 // ------------------------------------------------------------------ machinery: where each machine worked, day by day
+// Routes: computed at build time along the site roads with the machinery worklog's own router
+// (tools/routes.py), so the animation follows the roads behind the logged distances.
 const M_COLORS = { DZ: '#f9a825', EX1: '#ef6c00', EX2: '#c62828', T1: '#1e88e5', T2: '#3949ab', T3: '#00897b', T4: '#8e24aa' };
 const mColor = (s) => M_COLORS[s] || '#546e7a';
+const mType = (name) => (/dozer/i.test(name) ? 'dozer' : /excavator/i.test(name) ? 'excavator' : 'truck');
 let M = { day: 0, play: null, anim: null, markers: {}, routes: [], active: false, fitted: false };
+
+// --- machine pictures (SVG): top view for the map (front = up), side view for the list
+const GLASS = '#1b2a3a';
+const SHADE = 'rgba(0,0,0,.28)';
+const svgUrl = (s) => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s);
+const TOP = {                        // real length (m) and natural pixel length of each top view
+  truck: { len: 10.0, px: 100 },
+  excavator: { len: 9.6, px: 96 },
+  dozer: { len: 6.6, px: 66 },
+};
+function topSvg(type, c) {
+  if (type === 'truck') {
+    const wheels = [10, 20, 66, 79].map((y) => `<rect x="0" y="${y}" width="3.2" height="8" rx="1" fill="#1e1e1e"/><rect x="22.8" y="${y}" width="3.2" height="8" rx="1" fill="#1e1e1e"/>`).join('');
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="26" height="100" viewBox="0 0 26 100">${wheels}
+      <rect x="1.5" y="0.6" width="23" height="17" rx="3.2" fill="${c}" stroke="${SHADE}" stroke-width=".6"/>
+      <rect x="3.4" y="2" width="19.2" height="4.6" rx="1.2" fill="${GLASS}"/>
+      <rect x="4.2" y="8.4" width="17.6" height="7" rx="1.6" fill="rgba(255,255,255,.22)"/>
+      <rect x="10" y="17" width="6" height="4" fill="#333"/>
+      <rect x="1" y="20.5" width="24" height="79" rx="1.6" fill="${c}" stroke="${SHADE}" stroke-width=".8"/>
+      <rect x="3.4" y="23" width="19.2" height="74" rx="1.2" fill="#7b5e45"/>
+      <path d="M5 40 Q13 33 21 40 M5 60 Q13 53 21 60 M5 80 Q13 73 21 80" stroke="#5d4433" stroke-width="1.2" fill="none"/></svg>`;
+  }
+  if (type === 'excavator') {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="30" height="96" viewBox="0 0 30 96">
+      <rect x="0" y="50" width="7.5" height="44" rx="2.2" fill="#2b2b2b"/><rect x="22.5" y="50" width="7.5" height="44" rx="2.2" fill="#2b2b2b"/>
+      <path d="M1 54h5.5M1 60h5.5M1 66h5.5M1 72h5.5M1 78h5.5M1 84h5.5M1 90h5.5M23.5 54h5.5M23.5 60h5.5M23.5 66h5.5M23.5 72h5.5M23.5 78h5.5M23.5 84h5.5M23.5 90h5.5" stroke="#555" stroke-width=".9"/>
+      <rect x="3" y="45" width="24" height="38" rx="3.2" fill="${c}" stroke="${SHADE}" stroke-width=".8"/>
+      <rect x="3" y="76" width="24" height="8" rx="3" fill="rgba(0,0,0,.32)"/>
+      <rect x="4.6" y="47.5" width="9" height="13" rx="1.6" fill="${GLASS}"/>
+      <rect x="5.6" y="49" width="7" height="3.5" rx="1" fill="rgba(255,255,255,.25)"/>
+      <path d="M17 64h8M17 67h8M17 70h8" stroke="rgba(0,0,0,.35)" stroke-width=".9"/>
+      <rect x="14.2" y="9" width="6.2" height="42" rx="1.8" fill="${c}" stroke="${SHADE}" stroke-width=".8"/>
+      <rect x="16.4" y="18" width="1.8" height="26" rx=".9" fill="#d9d9d9"/>
+      <path d="M11 1.6h12.6v8.6H11z" fill="#3a3a3a"/><path d="M11.6 1.6v-1.4M14.4 1.6v-1.4M17.3 1.6v-1.4M20.2 1.6v-1.4M23 1.6v-1.4" stroke="#3a3a3a" stroke-width="1.1"/></svg>`;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="37" height="66" viewBox="0 0 37 66">
+    <rect x="0.3" y="0.3" width="36.4" height="5.2" rx="1.2" fill="${c}" stroke="rgba(0,0,0,.45)" stroke-width=".8"/>
+    <rect x="1.5" y="1.4" width="34" height="1.6" rx=".8" fill="rgba(255,255,255,.35)"/>
+    <rect x="4" y="5" width="3" height="11" fill="#333"/><rect x="30" y="5" width="3" height="11" fill="#333"/>
+    <rect x="2" y="12" width="8" height="48" rx="2.2" fill="#2b2b2b"/><rect x="27" y="12" width="8" height="48" rx="2.2" fill="#2b2b2b"/>
+    <path d="M3 16h6M3 22h6M3 28h6M3 34h6M3 40h6M3 46h6M3 52h6M28 16h6M28 22h6M28 28h6M28 34h6M28 40h6M28 46h6M28 52h6" stroke="#555" stroke-width=".9"/>
+    <rect x="9" y="13" width="19" height="45" rx="2.4" fill="${c}" stroke="${SHADE}" stroke-width=".8"/>
+    <path d="M12 18h13M12 21h13M12 24h13" stroke="rgba(0,0,0,.3)" stroke-width=".8"/>
+    <circle cx="14" cy="28.5" r="1.3" fill="#222"/>
+    <rect x="11" y="34" width="15" height="14" rx="1.8" fill="${GLASS}"/>
+    <rect x="12.2" y="35.4" width="12.6" height="3.4" rx="1" fill="rgba(255,255,255,.25)"/>
+    <rect x="15" y="58" width="7" height="7" rx="1" fill="#333"/></svg>`;
+}
+function sideSvg(type, c) {
+  if (type === 'truck') {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 40"><rect x="5" y="24" width="55" height="4" fill="#333"/>
+      <path d="M4 25V13q0-3 3-3h8q2 0 3 3v12z" fill="${c}"/><rect x="6" y="12.5" width="7.5" height="5.5" rx="1" fill="#bcd2e6"/>
+      <path d="M19 9h41l-3 15H19z" fill="${c}"/><path d="M21 9q19-9 37 0z" fill="#7b5e45"/>
+      ${[11, 21, 43, 53].map((x) => `<circle cx="${x}" cy="31" r="5" fill="#222"/><circle cx="${x}" cy="31" r="1.8" fill="#9e9e9e"/>`).join('')}</svg>`;
+  }
+  if (type === 'excavator') {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 40"><rect x="5" y="29" width="34" height="8" rx="4" fill="#333"/>
+      ${[10, 17, 24, 31].map((x) => `<circle cx="${x}" cy="33" r="2.2" fill="#666"/>`).join('')}
+      <rect x="8" y="19" width="28" height="10" rx="2" fill="${c}"/><rect x="10" y="9" width="10" height="11" rx="1.5" fill="${c}"/>
+      <rect x="11.5" y="10.5" width="7" height="5.5" rx="1" fill="#bcd2e6"/>
+      <path d="M28 21L43 5L55 22" stroke="${c}" stroke-width="4.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M52 21h8l-2 8h-7z" fill="#3a3a3a"/></svg>`;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 40"><rect x="13" y="28" width="38" height="9" rx="4.5" fill="#333"/>
+    ${[19, 26, 33, 40, 46].map((x) => `<circle cx="${x}" cy="32.5" r="2.2" fill="#666"/>`).join('')}
+    <rect x="16" y="16" width="30" height="12" rx="2" fill="${c}"/><rect x="28" y="5" width="14" height="12" rx="1.5" fill="${c}"/>
+    <rect x="30" y="7" width="10" height="5.5" rx="1" fill="#bcd2e6"/>
+    <path d="M5 13h5v22H3z" fill="${c}" stroke="rgba(0,0,0,.35)" stroke-width=".8"/><path d="M10 26l7-4" stroke="#333" stroke-width="2.2"/>
+    <path d="M51 27l6 6" stroke="#333" stroke-width="2.4"/></svg>`;
+}
 
 function buildMachines() {
   const md = DATA.machines;
@@ -455,12 +528,24 @@ function buildMachines() {
     style: new S.Style({ image: new S.Circle({ radius: 3, fill: new S.Fill({ color: 'rgba(255,255,255,.55)' }),
       stroke: new S.Stroke({ color: 'rgba(31,56,100,.7)', width: 1 }) }) }) });
   layers.mRoutes = new ol.layer.Vector({ source: new ol.source.Vector(), visible: false, zIndex: 31,
-    style: (f) => [new S.Style({ stroke: new S.Stroke({ color: 'rgba(0,0,0,.45)', width: 5 }) }),
-      new S.Style({ stroke: new S.Stroke({ color: mColor(f.get('short')), width: 3, lineDash: [10, 7] }) })] });
+    style: (f) => [new S.Style({ stroke: new S.Stroke({ color: 'rgba(0,0,0,.45)', width: 6 }) }),
+      new S.Style({ stroke: new S.Stroke({ color: mColor(f.get('short')), width: 3.5, lineDash: f.get('shuttle') ? [12, 8] : undefined }) })] });
+  // machine pictures: top view turned to the direction of travel; true size when zoomed in close
+  const icons = {};
   layers.mMachines = new ol.layer.Vector({ source: new ol.source.Vector(), visible: false, zIndex: 32,
-    style: (f) => new S.Style({
-      image: new S.Circle({ radius: 14, fill: new S.Fill({ color: mColor(f.get('short')) }), stroke: new S.Stroke({ color: '#fff', width: 2.5 }) }),
-      text: new S.Text({ text: f.get('short'), font: '700 10px "Segoe UI", system-ui, sans-serif', fill: new S.Fill({ color: '#fff' }) }) }) });
+    style: (f, res) => {
+      const k = f.get('short'), type = f.get('type'), t = TOP[type];
+      if (!icons[k]) icons[k] = new S.Icon({ src: svgUrl(topSvg(type, mColor(k))), rotateWithView: true });
+      const px = Math.max(38, Math.min(420, t.len / res));
+      icons[k].setScale(px / t.px);
+      icons[k].setRotation(f.get('heading') || 0);
+      const st = [new S.Style({ image: icons[k] })];
+      if (res > 0.35) {
+        st.push(new S.Style({ text: new S.Text({ text: k, offsetY: px / 2 + 11, font: '700 11px "Segoe UI", system-ui, sans-serif',
+          fill: new S.Fill({ color: '#fff' }), stroke: new S.Stroke({ color: mColor(k), width: 4 }) }) }));
+      }
+      return st;
+    } });
   [layers.mAll, layers.mRoutes, layers.mMachines].forEach((l) => map.addLayer(l));
 
   const first = md.days[0].date, last = md.days[md.days.length - 1].date;
@@ -497,7 +582,7 @@ function startPlay() {
   M.play = setInterval(() => {
     if (M.day >= n - 1) { stopPlay(); return; }
     showDay(M.day + 1);
-  }, 3200);
+  }, 5200);
 }
 
 function stopPlay() {
@@ -506,9 +591,18 @@ function stopPlay() {
   $('#mPlay').textContent = '▶ Play';
 }
 
+// direction of travel at fraction t of a line (map heading, clockwise from north)
+function headingAt(line, t, back) {
+  const a = line.getCoordinateAt(Math.max(0, Math.min(1, t - 0.004))), b = line.getCoordinateAt(Math.max(0, Math.min(1, t + 0.004)));
+  if (a[0] === b[0] && a[1] === b[1]) return null;
+  const h = Math.PI / 2 - Math.atan2(b[1] - a[1], b[0] - a[0]);
+  return back ? h + Math.PI : h;
+}
+
 function showDay(i, instant) {
   const md = DATA.machines;
   const day = md.days[i];
+  const next = i === M.day + 1;          // only a step to the next day drives there; other jumps place the machines directly
   M.day = i;
   $('#mSlider').value = i;
   const dt = new Date(day.date + 'T12:00:00');
@@ -517,59 +611,75 @@ function showDay(i, instant) {
   $('#mList').innerHTML = day.machines.map((m) => {
     const where = [...new Set(m.places.map((p) => p.where))].join(' → ');
     const work = [...new Set(m.places.map((p) => p.work).filter(Boolean))].join('; ');
-    return `<div class="mrow" data-m="${m.short}"><div class="mbadge" style="background:${mColor(m.short)}">${m.short}</div>
-      <div class="t"><b>${m.name}</b><span>${where}${m.shuttle ? ` · all-day shuttle${m.shuttle_km ? `, ${fmt(m.shuttle_km, 1)} km per round trip` : ''}` : ''}</span>
+    const route = m.path_m > 30 ? ` · ${fmt(m.path_m / 1000, 1)} km along the roads` : '';
+    return `<div class="mrow" data-m="${m.short}"><div class="mpic"><img src="${svgUrl(sideSvg(mType(m.name), mColor(m.short)))}" alt=""><span style="background:${mColor(m.short)}">${m.short}</span></div>
+      <div class="t"><b>${m.name}</b><span>${where}${m.shuttle ? ` · all-day shuttle${m.shuttle_km ? `, ${fmt(m.shuttle_km, 1)} km per round trip` : ''}` : route}</span>
       ${work ? `<br><span>${work}</span>` : ''}</div><div class="n">${m.hours ? fmt(m.hours, 0) + ' h' : ''}</div></div>`;
   }).join('');
   document.querySelectorAll('.mrow').forEach((r) => r.addEventListener('click', () => {
     const f = M.markers[r.dataset.m];
-    if (f) map.getView().animate({ center: f.getGeometry().getCoordinates(), resolution: Math.min(map.getView().getResolution(), 1.2), duration: 500 });
+    if (f) map.getView().animate({ center: f.getGeometry().getCoordinates(), resolution: Math.min(map.getView().getResolution(), 0.25), duration: 600 });
   }));
   if (!M.active) return;
 
-  // routes of the shuttling trucks
+  // the day's routes along the roads (dashed: all-day shuttle back and forth)
   const rs = layers.mRoutes.getSource();
   rs.clear();
   M.routes = [];
   day.machines.forEach((m) => {
-    if (m.shuttle && m.places.length > 1) {
-      const line = new ol.geom.LineString(m.places.map((p) => [p.x, p.y]));
-      rs.addFeature(new ol.Feature({ geometry: line, short: m.short }));
-      M.routes.push({ short: m.short, line, offset: 0.55 * M.routes.length });   // trucks on one route run apart
+    if (m.path && m.path.length > 1) {
+      const line = new ol.geom.LineString(m.path);
+      rs.addFeature(new ol.Feature({ geometry: line, short: m.short, shuttle: m.shuttle }));
+      if (m.shuttle) {
+        // trucks loading at the same spot take turns: each waits half a trip after the one before
+        const p0 = m.path[0];
+        const queue = M.routes.filter((r) => Math.hypot(r.start[0] - p0[0], r.start[1] - p0[1]) < 60).length;
+        M.routes.push({ short: m.short, line, start: p0, wait: 0.5 * queue });
+      }
     }
   });
-  // markers: glide from yesterday's position to today's
+  // markers: drive from yesterday's place to today's along the roads (route computed at build time)
   const ms = layers.mMachines.getSource();
-  const from = {}, to = {};
+  const arrive = {}, to = {};
   day.machines.forEach((m) => {
     to[m.short] = [m.places[0].x, m.places[0].y];
-    const old = M.markers[m.short];
-    from[m.short] = old ? old.getGeometry().getCoordinates() : to[m.short];
+    if (!instant && next && m.arrive && m.arrive.length > 1 && M.markers[m.short]) arrive[m.short] = new ol.geom.LineString(m.arrive);
   });
   Object.keys(M.markers).forEach((k) => { if (!(k in to)) { ms.removeFeature(M.markers[k]); delete M.markers[k]; } });
-  Object.keys(to).forEach((k) => {
-    if (!M.markers[k]) { M.markers[k] = new ol.Feature({ geometry: new ol.geom.Point(from[k]), short: k }); ms.addFeature(M.markers[k]); }
+  day.machines.forEach((m) => {
+    if (!M.markers[m.short]) {
+      M.markers[m.short] = new ol.Feature({ geometry: new ol.geom.Point(to[m.short]), short: m.short, type: mType(m.name), heading: 0 });
+      ms.addFeature(M.markers[m.short]);
+    }
   });
-  const t0 = performance.now(), GLIDE = instant ? 1 : 1100;
+  const t0 = performance.now(), DRIVE = instant ? 1 : 2400;
   const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
   cancelAnimationFrame(M.anim);
   const frame = (now) => {
-    const t = Math.min(1, (now - t0) / GLIDE);
+    const t = Math.min(1, (now - t0) / DRIVE);
     Object.keys(to).forEach((k) => {
-      let c;
-      if (t < 1) {
+      const f = M.markers[k];
+      let c = to[k], h = null;
+      if (t < 1 && arrive[k]) {
         const e = ease(t);
-        c = [from[k][0] + (to[k][0] - from[k][0]) * e, from[k][1] + (to[k][1] - from[k][1]) * e];
-      } else {
-        // after arriving: shuttling trucks run back and forth along their route
+        c = arrive[k].getCoordinateAt(e);
+        h = headingAt(arrive[k], e, false);
+      } else if (t >= 1) {
+        // after arriving: shuttling trucks drive back and forth along the day's road route
         const r = M.routes.find((x) => x.short === k);
         if (r) {
-          const phase = ((now - t0 - GLIDE) / 7000 + r.offset) % 2;
-          c = r.line.getCoordinateAt(phase < 1 ? phase : 2 - phase);
-        } else c = to[k];
+          const len = r.line.getLength();
+          const period = Math.max(6000, Math.min(16000, len * 5));      // ms for one way, longer routes take longer
+          const phase = Math.max(0, (now - t0 - DRIVE) / period - r.wait) % 2;
+          const back = phase >= 1, s = back ? 2 - phase : phase;
+          c = r.line.getCoordinateAt(s);
+          h = headingAt(r.line, s, back);
+        }
       }
-      M.markers[k].getGeometry().setCoordinates(c);
+      f.getGeometry().setCoordinates(c);
+      if (h !== null) f.set('heading', h, true);
     });
+    layers.mMachines.changed();
     M.anim = M.active ? requestAnimationFrame(frame) : null;
   };
   M.anim = requestAnimationFrame(frame);
