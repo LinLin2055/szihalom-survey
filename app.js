@@ -787,7 +787,7 @@ function buildProof() {
     <h3>Check 1 · Drone survey vs the design drawing</h3>
     <p>The fence lines measured on the drone images against the fences of the design drawing. Matching within a fraction of a percent shows the images are correctly placed and to scale.</p>
     <table class="grid"><tr><th>Area</th><th class="n">Drawing m²</th><th class="n">Drone m²</th><th class="n">Diff.</th></tr>${fenceRows}</table>
-    <p class="hint">Area 2.2: the survey company's fence line leaves out the south corner with the battery storage yard, hence the larger difference.</p>
+    <p class="hint">Area P2.2: the survey company's fence line leaves out the south corner with the battery storage yard, hence the larger difference.</p>
     <h3>Check 2 · Independent re-measurement of the heaps</h3>
     <p>We recomputed the footprint of all ${s.heap_area_check.n} heaps from their outlines: the median difference to the survey company's figure is ${fmt(s.heap_area_check.median_pct, 2)}% (largest ${fmt(s.heap_area_check.max_pct, 1)}%, on the smallest heaps). Use the measuring tool to check any heap yourself.</p>
     ${DATA.grass_cut ? `<h3>Grass cut so far (separate layer)</h3>
