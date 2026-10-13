@@ -68,6 +68,46 @@ button { font: inherit; cursor: pointer; }
   background: transparent; border: 1px solid currentColor; border-radius: 7px; padding: 4px 10px; font-size: 13px;
 }
 .top .text-btn { color: #fff; border-color: rgba(255,255,255,.5); }
+.top .hbtn { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.top .hbtn[hidden] { display: none; }
+.top .hbtn[aria-expanded="true"] { background: #fff; color: var(--navy); border-color: #fff; }
+.icon-btn.dark { color: var(--ink); font-size: 17px; }
+.icon-btn.dark:hover { background: var(--bg); }
+
+/* ---------- machinery table (sheet over the map) ---------- */
+.sheet { position: fixed; top: 52px; left: 0; right: 0; bottom: 0; z-index: 20; background: var(--bg); display: flex; flex-direction: column; }
+.sheet[hidden] { display: none; }
+.sheet-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 16px; background: var(--card); border-bottom: 1px solid var(--line); }
+.sheet-head .grow { flex: 1; min-width: 220px; }
+.sheet-head h2 { margin: 0; font-size: 17px; color: var(--navy); }
+.sheet-head .sub { color: var(--muted); font-size: 12.5px; }
+.sheet-head .seg { margin: 0; min-width: 230px; }
+.sheet-body { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 12px 16px; }
+.mt-wrap { flex: 0 1 auto; min-height: 0; overflow: auto; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+table.mt { border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
+table.mt th, table.mt td { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 4px; vertical-align: top; }
+table.mt thead th { position: sticky; top: 0; z-index: 2; background: var(--card); font-size: 12px; font-weight: 600; color: var(--muted);
+  text-align: left; white-space: nowrap; padding: 7px 8px; }
+table.mt thead th .wd { display: block; font-weight: 400; font-size: 11px; }
+table.mt thead th.cur { color: var(--navy); box-shadow: inset 0 -3px 0 var(--navy); }
+table.mt .rowh { position: sticky; left: 0; z-index: 1; background: var(--card); min-width: 180px; max-width: 210px; text-align: left; }
+table.mt thead th.rowh { z-index: 3; }
+table.mt tfoot td, table.mt tfoot th { background: var(--bg); font-weight: 600; white-space: nowrap; }
+table.mt tfoot .rowh { background: var(--bg); }
+table.mt td.n, table.mt th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding: 7px 8px; }
+table.mt td.none { color: #b4bbc6; text-align: center; vertical-align: middle; }
+.mt-mach { display: flex; align-items: center; gap: 8px; }
+.mt-mach img { width: 46px; height: 29px; flex: none; }
+.mt-mach b { display: block; font-size: 12.5px; line-height: 1.25; }
+.mt-badge { display: inline-block; color: #fff; font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 6px; line-height: 1.5; }
+.mt-cell { display: block; width: 100%; min-width: 92px; max-width: 140px; text-align: left; font: inherit; color: var(--ink); cursor: pointer;
+  border: 0; border-left: 3px solid var(--c); background: var(--tint); border-radius: 6px; padding: 5px 7px; }
+.mt-cell:hover, .mt-cell:focus-visible { outline: 2px solid var(--c); outline-offset: -1px; }
+.mt-cell b { display: block; font-size: 12.5px; line-height: 1.3; }
+.mt-cell .h { display: block; color: var(--muted); font-size: 11.5px; }
+.mt-cell .w { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--muted); font-size: 11px; line-height: 1.3; margin-top: 2px; }
+.mt-cell.area { --c: var(--navy); --tint: #f3f6fb; display: flex; flex-wrap: wrap; gap: 3px; min-width: 96px; }
+.mt-area b { font-size: 13px; color: var(--navy); }
 
 /* ---------- layout ---------- */
 .layout { flex: 1; display: flex; min-height: 0; position: relative; }
@@ -130,6 +170,7 @@ table.grid tr.sel { background: #e3eaf6; }
 .mday small { display: block; font-size: 12.5px; font-weight: 400; color: var(--muted); }
 .mrow { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
 .mrow:hover { background: #f3f6fb; }
+.mrow.flash { background: #e3ebf7; transition: background .4s; }
 .mpic { flex: none; width: 64px; position: relative; }
 .mpic img { width: 64px; height: 40px; display: block; }
 .mpic span { position: absolute; left: 0; bottom: -4px; color: #fff; font-size: 10px; font-weight: 700; padding: 0 5px; border-radius: 6px; }
@@ -178,6 +219,11 @@ table.grid tr.sel { background: #e3eaf6; }
 
 /* ---------- phone ---------- */
 @media (max-width: 760px) {
+  .top .hbtn span { display: none; }
+  table.mt .rowh { min-width: 112px; max-width: 130px; }
+  .mt-mach img { display: none; }
+  .sheet-head, .sheet-body { padding-left: 12px; padding-right: 12px; }
+  .top { gap: 8px; }
   .layout { flex-direction: column-reverse; }
   .panel { width: 100%; height: 46%; border-right: 0; border-top: 1px solid var(--line); }
   .top .title { font-size: 14px; }

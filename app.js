@@ -560,6 +560,7 @@ function buildMachines() {
   $('#mPrev').addEventListener('click', () => { stopPlay(); showDay(Math.max(0, M.day - 1)); });
   $('#mNext').addEventListener('click', () => { stopPlay(); showDay(Math.min(md.days.length - 1, M.day + 1)); });
   $('#mPlay').addEventListener('click', () => (M.play ? stopPlay() : startPlay()));
+  buildMachineTable();
 }
 
 function machinesActive(on) {
@@ -683,6 +684,133 @@ function showDay(i, instant) {
     M.anim = M.active ? requestAnimationFrame(frame) : null;
   };
   M.anim = requestAnimationFrame(frame);
+}
+
+// --- machinery table: every machine (or area) day by day, opened from the header
+const mtState = { mode: 'machine' };
+const mtEsc = (s) => String(s ?? '').replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+// a place, short: the area it lies in, or the area it was near ("outside the fences, 540 m from P5.4" -> near P5.4)
+function mtPlace(p) {
+  if (p.area) return p.area;
+  const m = /from (P\d\.\d|DEPO|BESS)/.exec(p.where || '');
+  return m ? `near ${m[1]}` : 'outside the fences';
+}
+function mtChain(m) {
+  const out = [];
+  m.places.forEach((p) => { const s = mtPlace(p); if (out[out.length - 1] !== s) out.push(s); });
+  return out.join(' → ');
+}
+const mtDayHead = (d, i) => {
+  const dt = new Date(d.date + 'T12:00:00');
+  return `<th class="${i === M.day ? 'cur' : ''}" scope="col"><span class="wd">${dt.toLocaleDateString('en-GB', { weekday: 'short' })}</span>${dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</th>`;
+};
+
+function buildMachineTable() {
+  const md = DATA.machines;
+  const btn = $('#mTableBtn');
+  btn.hidden = false;
+  btn.addEventListener('click', () => ($('#mTable').hidden ? openMTable() : closeMTable()));
+  $('#mtClose').addEventListener('click', closeMTable);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#mTable').hidden) closeMTable(); });
+  document.querySelectorAll('#mtMode button').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll('#mtMode button').forEach((x) => x.classList.toggle('on', x === b));
+    mtState.mode = b.dataset.mode;
+    renderMTable();
+  }));
+  $('#mtTable').addEventListener('click', (e) => {
+    const c = e.target.closest('[data-day]');
+    if (c) openMachineDay(+c.dataset.day, c.dataset.m);
+  });
+  const first = md.days[0].date, last = md.days[md.days.length - 1].date;
+  $('#mtSub').textContent = `${shortDate(first)} – ${new Date(last + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` +
+    ` · ${md.days.length} working days · ${md.machines.length} machines · ${md.machine_days} machine-days · ${fmt(md.hours, 0)} h · PO ${md.po}`;
+}
+
+function openMTable() {
+  renderMTable();
+  $('#mTable').hidden = false;
+  $('#mTableBtn').setAttribute('aria-expanded', 'true');
+  $('#mtClose').focus();
+}
+
+function closeMTable() {
+  $('#mTable').hidden = true;
+  $('#mTableBtn').setAttribute('aria-expanded', 'false');
+  $('#mTableBtn').focus();
+}
+
+// from a cell: that day on the map, showing where the machine went that day
+function openMachineDay(i, short) {
+  closeMTable();
+  M.fitted = true;                                   // no whole-site zoom when the tab opens
+  document.querySelector('.tabs [data-tab="machines"]').click();
+  stopPlay();
+  showDay(i, true);
+  const m = DATA.machines.days[i].machines.find((x) => x.short === short);
+  if (!m) return;
+  const v = map.getView();
+  v.cancelAnimations();
+  if (m.path && m.path.length > 1) v.fit(ol.extent.boundingExtent(m.path), { padding: [70, 70, 70, 70], duration: 600, minResolution: 0.5 });
+  else v.animate({ center: [m.places[0].x, m.places[0].y], resolution: Math.min(v.getResolution(), 0.8), duration: 600 });
+  const row = document.querySelector(`.mrow[data-m="${short}"]`);
+  if (row) {
+    row.scrollIntoView({ block: 'nearest' });
+    row.classList.add('flash');
+    setTimeout(() => row.classList.remove('flash'), 2200);
+  }
+}
+
+function renderMTable() {
+  const md = DATA.machines;
+  const days = md.days;
+  let html;
+  if (mtState.mode === 'machine') {
+    // machines in a fixed order: dozer, excavators, trucks
+    const order = [...new Map(days.flatMap((d) => d.machines).map((m) => [m.short, m])).values()]
+      .sort((a, b) => Object.keys(M_COLORS).indexOf(a.short) - Object.keys(M_COLORS).indexOf(b.short));
+    html = `<thead><tr><th class="rowh" scope="col">Machine</th>${days.map(mtDayHead).join('')}<th class="n" scope="col">Days</th><th class="n" scope="col">Hours</th></tr></thead><tbody>` +
+      order.map((mm) => {
+        const c = mColor(mm.short);
+        let n = 0, h = 0;
+        const cells = days.map((d, i) => {
+          const m = d.machines.find((x) => x.short === mm.short);
+          if (!m) return '<td class="none">–</td>';
+          n += 1; h += m.hours || 0;
+          const work = [...new Set(m.places.map((p) => p.work).filter(Boolean))].join('; ');
+          const where = [...new Set(m.places.map((p) => p.where))].join(' → ');
+          const extra = m.shuttle ? `shuttle${m.shuttle_km ? `, ${fmt(m.shuttle_km, 1)} km round trip` : ''}` : '';
+          return `<td><button class="mt-cell" style="--c:${c};--tint:${c}1f" data-day="${i}" data-m="${mm.short}" title="${mtEsc(where + (work ? ' – ' + work : ''))}">` +
+            `<b>${mtEsc(mtChain(m))}</b><span class="h">${m.hours ? fmt(m.hours, 0) + ' h' : ''}${extra ? ' · ' + extra : ''}</span>` +
+            `${work ? `<span class="w">${mtEsc(work)}</span>` : ''}</button></td>`;
+        }).join('');
+        return `<tr><th class="rowh" scope="row"><div class="mt-mach"><img src="${svgUrl(sideSvg(mType(mm.name), c))}" alt="">` +
+          `<div><b>${mtEsc(mm.name)}</b><span class="mt-badge" style="background:${c}">${mm.short}</span></div></div></th>${cells}` +
+          `<td class="n">${n}</td><td class="n">${fmt(h, 0)}</td></tr>`;
+      }).join('') +
+      `</tbody><tfoot><tr><th class="rowh" scope="row">Machines · hours</th>${days.map((d) =>
+        `<td class="n">${d.machines.length} · ${fmt(d.machines.reduce((s, m) => s + (m.hours || 0), 0), 0)} h</td>`).join('')}` +
+      `<td class="n">${md.machine_days}</td><td class="n">${fmt(md.hours, 0)}</td></tr></tfoot>`;
+  } else {
+    // areas: the fenced areas worked in, then the places outside the fences
+    const OUT = 'Outside the fences';
+    const key = (p) => p.area || OUT;
+    const names = [...new Set(days.flatMap((d) => d.machines.flatMap((m) => m.places.map(key))))]
+      .sort((a, b) => (a === OUT) - (b === OUT) || (a === 'DEPO') - (b === 'DEPO') || a.localeCompare(b));
+    html = `<thead><tr><th class="rowh" scope="col">Area</th>${days.map(mtDayHead).join('')}<th class="n" scope="col">Machine-days</th></tr></thead><tbody>` +
+      names.map((a) => {
+        let n = 0;
+        const cells = days.map((d, i) => {
+          const ms = d.machines.filter((m) => m.places.some((p) => key(p) === a));
+          if (!ms.length) return '<td class="none">–</td>';
+          n += ms.length;
+          return `<td><button class="mt-cell area" data-day="${i}" data-m="${ms[0].short}" title="${mtEsc(ms.map((m) => `${m.short} ${m.name}`).join(', '))}">` +
+            `${ms.map((m) => `<span class="mt-badge" style="background:${mColor(m.short)}">${m.short}</span>`).join('')}</button></td>`;
+        }).join('');
+        const sub = a === OUT ? 'access roads, loading spots' : (DATA.areas.find((x) => x.id === a)?.mv || []).join(', ');
+        return `<tr><th class="rowh mt-area" scope="row"><b>${mtEsc(a)}</b>${sub ? `<br><span class="hint">${mtEsc(sub)}</span>` : ''}</th>${cells}<td class="n">${n}</td></tr>`;
+      }).join('') + '</tbody>';
+  }
+  $('#mtTable').innerHTML = html;
 }
 
 function setLayer(key, on) {
