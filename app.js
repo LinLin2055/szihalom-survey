@@ -1,33 +1,44 @@
 /* Szihalom drone survey viewer.
-   Everything (image tiles and data) is AES-GCM encrypted; the password unlocks the content key
-   (key.json, PBKDF2-SHA256). Coordinates are WGS 84 / UTM 34N (EPSG:32634), as in the survey. */
+   Everything (image tiles and data) is AES-GCM encrypted. key.json holds one entry per password (PBKDF2-SHA256):
+   each unlocks the tile key and the data key of one view (the full view, or the sales view with the Services tab
+   and without our worklog). Coordinates are WGS 84 / UTM 34N (EPSG:32634), as in the survey. */
 'use strict';
 
-const KEY_STORE = 'szihalom-survey-ck';
+const KEY_STORE = 'szihalom-survey-v2';
+const OLD_KEY_STORE = 'szihalom-survey-ck';     // saved by the one-key version: no longer opens anything
 const $ = (s) => document.querySelector(s);
 const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 const fmt = (v, d = 0) => (v == null ? '–' : Number(v).toLocaleString('en-GB', { minimumFractionDigits: d, maximumFractionDigits: d }));
 
-let CK = null;          // AES-GCM content key
+let CK = null;          // AES-GCM tile key (the image tiles)
+let DK = null;          // AES-GCM data key of this view
 let DATA = null;
 
 // ------------------------------------------------------------------ unlock
-async function contentKeyFromPassword(pw) {
+// the password opens one entry of key.json: { tk: tile key, dk: data key, file: the view's data file }
+async function unlock(pw) {
   const kj = await (await fetch('key.json', { cache: 'no-store' })).json();
   const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']);
   const kek = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt: b64(kj.salt), iterations: kj.iter, hash: 'SHA-256' },
     base, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
-  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64(kj.iv) }, kek, b64(kj.wrapped)));
+  for (const k of kj.keys) {
+    try {
+      const raw = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64(k.iv) }, kek, b64(k.wrapped));
+      return JSON.parse(new TextDecoder().decode(raw));
+    } catch (_) { /* the entry of another password */ }
+  }
+  throw new Error('wrong password');
 }
 
-async function decrypt(buf) {
-  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, CK, buf.slice(12)));
+async function decrypt(buf, key = CK) {
+  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, key, buf.slice(12)));
 }
 
-async function start(raw) {
-  CK = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['decrypt']);
-  const enc = new Uint8Array(await (await fetch('data.enc', { cache: 'no-store' })).arrayBuffer());
-  DATA = JSON.parse(new TextDecoder().decode(fflate.gunzipSync(await decrypt(enc))));
+async function start(bundle) {
+  CK = await crypto.subtle.importKey('raw', b64(bundle.tk), 'AES-GCM', false, ['decrypt']);
+  DK = await crypto.subtle.importKey('raw', b64(bundle.dk), 'AES-GCM', false, ['decrypt']);
+  const enc = new Uint8Array(await (await fetch(bundle.file, { cache: 'no-store' })).arrayBuffer());
+  DATA = JSON.parse(new TextDecoder().decode(fflate.gunzipSync(await decrypt(enc, DK))));
   $('#lock').hidden = true;
   buildMap();
   buildPanel();
@@ -38,11 +49,11 @@ $('#lockForm').addEventListener('submit', async (e) => {
   const btn = $('#unlockBtn');
   btn.disabled = true; btn.textContent = 'Opening…'; $('#lockMsg').textContent = '';
   try {
-    const raw = await contentKeyFromPassword($('#pw').value);
+    const bundle = await unlock($('#pw').value);
     if ($('#remember').checked) {
-      try { localStorage.setItem(KEY_STORE, btoa(String.fromCharCode(...raw))); } catch (_) { /* private mode */ }
+      try { localStorage.setItem(KEY_STORE, JSON.stringify(bundle)); } catch (_) { /* private mode */ }
     }
-    await start(raw);
+    await start(bundle);
   } catch (err) {
     console.error(err);
     $('#lockMsg').textContent = 'Wrong password.';
@@ -51,15 +62,18 @@ $('#lockForm').addEventListener('submit', async (e) => {
 });
 
 $('#logout').addEventListener('click', () => {
-  try { localStorage.removeItem(KEY_STORE); } catch (_) { /* ignore */ }
+  try { localStorage.removeItem(KEY_STORE); localStorage.removeItem(OLD_KEY_STORE); } catch (_) { /* ignore */ }
   location.reload();
 });
 
 (async () => {
   let saved = null;
-  try { saved = localStorage.getItem(KEY_STORE); } catch (_) { /* ignore */ }
+  try { localStorage.removeItem(OLD_KEY_STORE); saved = localStorage.getItem(KEY_STORE); } catch (_) { /* ignore */ }
   if (saved) {
-    try { await start(b64(saved)); return; } catch (err) { console.error(err); }
+    try { await start(JSON.parse(saved)); return; } catch (err) {
+      console.error(err);
+      try { localStorage.removeItem(KEY_STORE); } catch (_) { /* ignore */ }     // keys changed since: ask again
+    }
   }
   $('#pw').focus();
 })();
@@ -416,8 +430,9 @@ function buildPanel() {
     if (b.dataset.mode === 'grass' && layers.grassCut) setLayer('grassCut', true);
   }));
   renderAreas('heaps');
-  if (!layers.grassCut) document.querySelector('#areaMode [data-mode="grass"]').disabled = true;
-  if (!DATA.machines) document.querySelector('#areaMode [data-mode="machines"]').disabled = true;
+  if (!layers.grassCut) document.querySelector('#areaMode [data-mode="grass"]').hidden = true;
+  if (!DATA.machines) document.querySelector('#areaMode [data-mode="machines"]').hidden = true;
+  if (!layers.grassCut && !DATA.machines) $('#areaMode').hidden = true;      // only one view left: no switch
 
   // heaps
   const sel = $('#heapArea');
@@ -436,6 +451,10 @@ function buildPanel() {
   }));
   if (DATA.machines) buildMachines();
   else document.querySelector('.tabs [data-tab="machines"]').hidden = true;
+  if (DATA.services) {                                // sales view: what we offer
+    document.querySelector('.tabs [data-tab="services"]').hidden = false;
+    $('#tab-services').innerHTML = DATA.services;
+  }
   $('#panelToggle').addEventListener('click', () => { $('#panel').classList.toggle('hidden'); map.updateSize(); });
 
   buildProof();
