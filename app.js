@@ -34,12 +34,33 @@ async function decrypt(buf, key = CK) {
   return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, key, buf.slice(12)));
 }
 
+// a trial password closes after its last day: polite message instead of the survey, remembered login forgotten
+function trialEnded(bundle) {
+  if (!bundle.until) return false;
+  const last = new Date(bundle.until + 'T23:59:59');
+  if (new Date() <= last) return false;
+  try { localStorage.removeItem(KEY_STORE); } catch (_) { /* ignore */ }
+  const day = last.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  $('#lockMsg').innerHTML = `The trial access ended on ${day}.<br>To continue, please contact Sky Tech Line:<br>` +
+    '<a href="mailto:csaba.vajda@skytechline.com">csaba.vajda@skytechline.com</a> · +36 30 235 8403';
+  $('#lockMsg').classList.add('trial');
+  return true;
+}
+
 async function start(bundle) {
+  if (trialEnded(bundle)) return false;
   CK = await crypto.subtle.importKey('raw', b64(bundle.tk), 'AES-GCM', false, ['decrypt']);
   DK = await crypto.subtle.importKey('raw', b64(bundle.dk), 'AES-GCM', false, ['decrypt']);
   const enc = new Uint8Array(await (await fetch(bundle.file, { cache: 'no-store' })).arrayBuffer());
   DATA = JSON.parse(new TextDecoder().decode(fflate.gunzipSync(await decrypt(enc, DK))));
   $('#lock').hidden = true;
+  if (bundle.until) {                                 // trial: show until when it is open
+    const last = new Date(bundle.until + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+    const tag = document.createElement('span');
+    tag.className = 'trial-tag';
+    tag.textContent = `Trial access until ${last}`;
+    $('.top').insertBefore(tag, $('#logout'));
+  }
   buildMap();
   buildPanel();
 }
@@ -47,13 +68,13 @@ async function start(bundle) {
 $('#lockForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const btn = $('#unlockBtn');
-  btn.disabled = true; btn.textContent = 'Opening…'; $('#lockMsg').textContent = '';
+  btn.disabled = true; btn.textContent = 'Opening…'; $('#lockMsg').textContent = ''; $('#lockMsg').classList.remove('trial');
   try {
     const bundle = await unlock($('#pw').value);
     if ($('#remember').checked) {
       try { localStorage.setItem(KEY_STORE, JSON.stringify(bundle)); } catch (_) { /* private mode */ }
     }
-    await start(bundle);
+    if (await start(bundle) === false) { btn.disabled = false; btn.textContent = 'Open'; return; }
   } catch (err) {
     console.error(err);
     $('#lockMsg').textContent = 'Wrong password.';
@@ -70,7 +91,7 @@ $('#logout').addEventListener('click', () => {
   let saved = null;
   try { localStorage.removeItem(OLD_KEY_STORE); saved = localStorage.getItem(KEY_STORE); } catch (_) { /* ignore */ }
   if (saved) {
-    try { await start(JSON.parse(saved)); return; } catch (err) {
+    try { if (await start(JSON.parse(saved)) !== false) return; } catch (err) {
       console.error(err);
       try { localStorage.removeItem(KEY_STORE); } catch (_) { /* ignore */ }     // keys changed since: ask again
     }
