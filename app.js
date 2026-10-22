@@ -487,7 +487,12 @@ function buildPanel() {
 const M_COLORS = { DZ: '#f9a825', EX1: '#ef6c00', EX2: '#c62828', T1: '#1e88e5', T2: '#3949ab', T3: '#00897b', T4: '#8e24aa' };
 const mColor = (s) => M_COLORS[s] || '#546e7a';
 const mType = (name) => (/dozer/i.test(name) ? 'dozer' : /excavator/i.test(name) ? 'excavator' : 'truck');
-let M = { day: 0, play: null, anim: null, markers: {}, routes: [], active: false, fitted: false };
+// PO and extras: the PO's fixed machines on its rental days, and everything else (machines not on the PO,
+// PO machines after its days). Data without a PO split counts as all PO.
+const isPo = (m) => m.po !== false;
+const isPoDay = (d) => { const s = DATA.machines.po_scope; return !s || (d.date >= s.first && d.date <= s.last); };
+const extraWhy = (m) => ((DATA.machines.po_scope?.shorts || []).includes(m.short) ? `after the PO's ${DATA.machines.po_scope.days} days` : 'not on the PO');
+let M ={ day: 0, play: null, anim: null, markers: {}, routes: [], active: false, fitted: false };
 
 // --- machine pictures (SVG): top view for the map (front = up), side view for the list
 const GLASS = '#1b2a3a';
@@ -581,7 +586,7 @@ function buildMachines() {
       icons[k].setRotation(f.get('heading') || 0);
       const st = [new S.Style({ image: icons[k] })];
       if (res > 0.35) {
-        st.push(new S.Style({ text: new S.Text({ text: k, offsetY: px / 2 + 11, font: '700 11px "Segoe UI", system-ui, sans-serif',
+        st.push(new S.Style({ text: new S.Text({ text: f.get('extra') ? `${k} · extra` : k, offsetY: px / 2 + 11, font: '700 11px "Segoe UI", system-ui, sans-serif',
           fill: new S.Fill({ color: '#fff' }), stroke: new S.Stroke({ color: mColor(k), width: 4 }) }) }));
       }
       return st;
@@ -590,10 +595,16 @@ function buildMachines() {
 
   const first = md.days[0].date, last = md.days[md.days.length - 1].date;
   const range = `${shortDate(first)} – ${new Date(last + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
-  $('#mSummary').innerHTML =
-    `<div class="kpi"><div class="v">${md.machine_days}</div><div class="l">machine-days with marked positions</div></div>` +
-    `<div class="kpi"><div class="v">${fmt(md.hours, 0)} h</div><div class="l">machine-hours logged</div></div>` +
-    `<div class="kpi wide"><div class="v">${range}</div><div class="l">${md.days.length} working days · ${md.machines.length} machines · PO ${md.po}</div></div>`;
+  const ps = md.po_scope, ex = md.extras;
+  $('#mSummary').innerHTML = ps
+    ? `<div class="kpi"><div class="v">${ps.machine_days} <small>machine-days</small></div><div class="l"><b>PO machines</b> · ${fmt(ps.hours, 0)} h<br>` +
+      `${ps.shorts.join(', ')} · ${ps.days} days, ${shortDate(ps.first)} – ${shortDate(ps.last)}</div></div>` +
+      `<div class="kpi extra"><div class="v">${ex.machine_days} <small>machine-days</small></div><div class="l"><b>Extras</b> · ${fmt(ex.hours, 0)} h<br>` +
+      `machines not on the PO, and PO machines after its ${ps.days} days</div></div>` +
+      `<div class="kpi wide"><div class="v">${range}</div><div class="l">${md.days.length} working days · ${md.machines.length} machines · PO ${md.po}</div></div>`
+    : `<div class="kpi"><div class="v">${md.machine_days}</div><div class="l">machine-days with marked positions</div></div>` +
+      `<div class="kpi"><div class="v">${fmt(md.hours, 0)} h</div><div class="l">machine-hours logged</div></div>` +
+      `<div class="kpi wide"><div class="v">${range}</div><div class="l">${md.days.length} working days · ${md.machines.length} machines · PO ${md.po}</div></div>`;
   const sl = $('#mSlider');
   sl.max = md.days.length - 1;
   sl.addEventListener('input', () => { stopPlay(); showDay(+sl.value); });
@@ -647,16 +658,24 @@ function showDay(i, instant) {
   M.day = i;
   $('#mSlider').value = i;
   const dt = new Date(day.date + 'T12:00:00');
+  const ps = md.po_scope;
+  const poMs = day.machines.filter(isPo), exMs = day.machines.filter((m) => !isPo(m));
+  const hrs = (ms) => fmt(ms.reduce((s, m) => s + (m.hours || 0), 0), 0);
   $('#mDay').innerHTML = `${dt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-    <small>Day ${i + 1} of ${md.days.length} · ${day.machines.length} machines · ${fmt(day.machines.reduce((s, m) => s + (m.hours || 0), 0), 0)} machine-hours</small>`;
-  $('#mList').innerHTML = day.machines.map((m) => {
+    <small>Day ${i + 1} of ${md.days.length} · ${ps ? `${poMs.length} PO machine${poMs.length === 1 ? '' : 's'}${exMs.length ? ` + ${exMs.length} extra` : ''}`
+      : `${day.machines.length} machines`} · ${hrs(day.machines)} machine-hours${ps && !isPoDay(day) ? ` · after the PO's ${ps.days} days` : ''}</small>`;
+  const mRow = (m) => {
     const where = [...new Set(m.places.map((p) => p.where))].join(' → ');
     const work = [...new Set(m.places.map((p) => p.work).filter(Boolean))].join('; ');
     const route = m.path_m > 30 ? ` · ${fmt(m.path_m / 1000, 1)} km along the roads` : '';
     return `<div class="mrow" data-m="${m.short}"><div class="mpic"><img src="${svgUrl(sideSvg(mType(m.name), mColor(m.short)))}" alt=""><span style="background:${mColor(m.short)}">${m.short}</span></div>
-      <div class="t"><b>${m.name}</b><span>${where}${m.shuttle ? ` · all-day shuttle${m.shuttle_km ? `, ${fmt(m.shuttle_km, 1)} km per round trip (logged)` : ''}` : route}</span>
+      <div class="t"><b>${m.name}${isPo(m) ? '' : ` <em class="xtag">extra · ${extraWhy(m)}</em>`}</b><span>${where}${m.shuttle ? ` · all-day shuttle${m.shuttle_km ? `, ${fmt(m.shuttle_km, 1)} km per round trip (logged)` : ''}` : route}</span>
       ${work ? `<br><span>${work}</span>` : ''}</div><div class="n">${m.hours ? fmt(m.hours, 0) + ' h' : ''}</div></div>`;
-  }).join('');
+  };
+  $('#mList').innerHTML = !ps ? day.machines.map(mRow).join('')
+    : `<div class="mgrp">PO machines <span>${poMs.length ? `${poMs.length} · ${hrs(poMs)} h` : ''}</span></div>` +
+      (poMs.length ? poMs.map(mRow).join('') : `<p class="hint">None: this day is after the PO's ${ps.days} days.</p>`) +
+      (exMs.length ? `<div class="mgrp extra">Extras <span>${exMs.length} · ${hrs(exMs)} h</span></div>` + exMs.map(mRow).join('') : '');
   document.querySelectorAll('.mrow').forEach((r) => r.addEventListener('click', () => {
     const f = M.markers[r.dataset.m];
     if (f) map.getView().animate({ center: f.getGeometry().getCoordinates(), resolution: Math.min(map.getView().getResolution(), 0.25), duration: 600 });
@@ -692,6 +711,7 @@ function showDay(i, instant) {
       M.markers[m.short] = new ol.Feature({ geometry: new ol.geom.Point(to[m.short]), short: m.short, type: mType(m.name), heading: 0 });
       ms.addFeature(M.markers[m.short]);
     }
+    M.markers[m.short].set('extra', !isPo(m), true);      // the same machine can be PO one day, extra the next
   });
   const t0 = performance.now(), DRIVE = instant ? 1 : 2400;
   const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
@@ -757,13 +777,14 @@ function buildMachineTable() {
     mtState.mode = b.dataset.mode;
     renderMTable();
   }));
-  $('#mtTable').addEventListener('click', (e) => {
+  $('#mtBody').addEventListener('click', (e) => {
     const c = e.target.closest('[data-day]');
     if (c) openMachineDay(+c.dataset.day, c.dataset.m);
   });
   const first = md.days[0].date, last = md.days[md.days.length - 1].date;
   $('#mtSub').textContent = `${shortDate(first)} – ${new Date(last + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` +
-    ` · ${md.days.length} working days · ${md.machines.length} machines · ${md.machine_days} machine-days · ${fmt(md.hours, 0)} h · PO ${md.po}`;
+    ` · ${md.days.length} working days · ${md.machines.length} machines · ${md.machine_days} machine-days · ${fmt(md.hours, 0)} h · PO ${md.po}` +
+    (md.po_scope ? ` · PO machines ${md.po_scope.machine_days}, extras ${md.extras.machine_days} machine-days` : '');
 }
 
 function openMTable() {
@@ -800,20 +821,36 @@ function openMachineDay(i, short) {
   }
 }
 
+// the table in two parts: the PO's fixed machines over its days, then the extras over the days they worked
 function renderMTable() {
-  const md = DATA.machines;
-  const days = md.days;
-  let html;
-  if (mtState.mode === 'machine') {
-    // machines in a fixed order: dozer, excavators, trucks
-    const order = [...new Map(days.flatMap((d) => d.machines).map((m) => [m.short, m])).values()]
-      .sort((a, b) => Object.keys(M_COLORS).indexOf(a.short) - Object.keys(M_COLORS).indexOf(b.short));
-    html = `<thead><tr><th class="rowh" scope="col">Machine</th>${days.map(mtDayHead).join('')}<th class="n" scope="col">Days</th><th class="n" scope="col">Hours</th></tr></thead><tbody>` +
+  const md = DATA.machines, ps = md.po_scope;
+  const all = md.days.map((d, i) => ({ d, i }));
+  const parts = !ps ? [{ cols: all, pick: () => true }] : [
+    { title: `PO ${md.po} · ${ps.shorts.length} fixed machines · ${ps.days} days`,
+      sub: `${shortDate(ps.first)} – ${shortDate(ps.last)} · ${ps.machine_days} machine-days · ${fmt(ps.hours, 0)} h logged`,
+      cols: all.filter((c) => isPoDay(c.d)), pick: isPo, rows: ps.machines.map((name, k) => ({ name, short: ps.shorts[k] })) },
+    { title: 'Extras', sub: `machines not on the PO, and PO machines after its ${ps.days} days · ${md.extras.machine_days} machine-days · ${fmt(md.extras.hours, 0)} h logged`,
+      cols: all.filter((c) => c.d.machines.some((m) => !isPo(m))), pick: (m) => !isPo(m), extra: true },
+  ];
+  $('#mtBody').innerHTML = parts.filter((p) => p.cols.length).map((p) =>
+    (p.title ? `<div class="mt-sec${p.extra ? ' extra' : ''}"><h3>${mtEsc(p.title)}</h3><span>${mtEsc(p.sub)}</span></div>` : '') +
+    `<div class="mt-wrap"><table class="mt">${mtState.mode === 'machine' ? mtMachines(p) : mtAreas(p)}</table></div>`).join('');
+}
+
+function mtMachines({ cols, pick, rows, extra }) {
+  const days = cols.map((c) => c.d);
+  // machines in a fixed order: dozer, excavators, trucks (extras: those not on the PO first)
+  const ord = (m) => (extra && (DATA.machines.po_scope?.shorts || []).includes(m.short) ? 10 : 0) + Object.keys(M_COLORS).indexOf(m.short);
+  const order = rows || [...new Map(days.flatMap((d) => d.machines.filter(pick)).map((m) => [m.short, m])).values()].sort((a, b) => ord(a) - ord(b));
+  const mine = (d) => d.machines.filter(pick);
+  const hrs = (ms) => ms.reduce((s, m) => s + (m.hours || 0), 0);
+  const rowNote = (mm) => (extra && (DATA.machines.po_scope?.shorts || []).includes(mm.short) ? `<span class="hint">${extraWhy(mm)}</span>` : '');
+  return `<thead><tr><th class="rowh" scope="col">Machine</th>${cols.map((c) => mtDayHead(c.d, c.i)).join('')}<th class="n" scope="col">Days</th><th class="n" scope="col">Hours</th></tr></thead><tbody>` +
       order.map((mm) => {
         const c = mColor(mm.short);
         let n = 0, h = 0;
-        const cells = days.map((d, i) => {
-          const m = d.machines.find((x) => x.short === mm.short);
+        const cells = cols.map(({ d, i }) => {
+          const m = mine(d).find((x) => x.short === mm.short);
           if (!m) return '<td class="none">–</td>';
           n += 1; h += m.hours || 0;
           const work = [...new Set(m.places.map((p) => p.work).filter(Boolean))].join('; ');
@@ -824,33 +861,34 @@ function renderMTable() {
             `${work ? `<span class="w">${mtEsc(work)}</span>` : ''}</button></td>`;
         }).join('');
         return `<tr><th class="rowh" scope="row"><div class="mt-mach"><img src="${svgUrl(sideSvg(mType(mm.name), c))}" alt="">` +
-          `<div><b>${mtEsc(mm.name)}</b><span class="mt-badge" style="background:${c}">${mm.short}</span></div></div></th>${cells}` +
+          `<div><b>${mtEsc(mm.name)}</b><span class="mt-badge" style="background:${c}">${mm.short}</span>${rowNote(mm)}</div></div></th>${cells}` +
           `<td class="n">${n}</td><td class="n">${fmt(h, 0)}</td></tr>`;
       }).join('') +
       `</tbody><tfoot><tr><th class="rowh" scope="row">Machines · hours</th>${days.map((d) =>
-        `<td class="n">${d.machines.length} · ${fmt(d.machines.reduce((s, m) => s + (m.hours || 0), 0), 0)} h</td>`).join('')}` +
-      `<td class="n">${md.machine_days}</td><td class="n">${fmt(md.hours, 0)}</td></tr></tfoot>`;
-  } else {
-    // areas: the fenced areas worked in, then the places outside the fences
-    const OUT = 'Outside the fences';
-    const key = (p) => p.area || OUT;
-    const names = [...new Set(days.flatMap((d) => d.machines.flatMap((m) => m.places.map(key))))]
-      .sort((a, b) => (a === OUT) - (b === OUT) || (a === 'DEPO') - (b === 'DEPO') || a.localeCompare(b));
-    html = `<thead><tr><th class="rowh" scope="col">Area</th>${days.map(mtDayHead).join('')}<th class="n" scope="col">Machine-days</th></tr></thead><tbody>` +
-      names.map((a) => {
-        let n = 0;
-        const cells = days.map((d, i) => {
-          const ms = d.machines.filter((m) => m.places.some((p) => key(p) === a));
-          if (!ms.length) return '<td class="none">–</td>';
-          n += ms.length;
-          return `<td><button class="mt-cell area" data-day="${i}" data-m="${ms[0].short}" title="${mtEsc(ms.map((m) => `${m.short} ${m.name}`).join(', '))}">` +
-            `${ms.map((m) => `<span class="mt-badge" style="background:${mColor(m.short)}">${m.short}</span>`).join('')}</button></td>`;
-        }).join('');
-        const sub = a === OUT ? 'access roads, loading spots' : (DATA.areas.find((x) => x.id === a)?.mv || []).join(', ');
-        return `<tr><th class="rowh mt-area" scope="row"><b>${mtEsc(a)}</b>${sub ? `<br><span class="hint">${mtEsc(sub)}</span>` : ''}</th>${cells}<td class="n">${n}</td></tr>`;
-      }).join('') + '</tbody>';
-  }
-  $('#mtTable').innerHTML = html;
+        `<td class="n">${mine(d).length} · ${fmt(hrs(mine(d)), 0)} h</td>`).join('')}` +
+      `<td class="n">${days.reduce((s, d) => s + mine(d).length, 0)}</td><td class="n">${fmt(days.reduce((s, d) => s + hrs(mine(d)), 0), 0)}</td></tr></tfoot>`;
+}
+
+function mtAreas({ cols, pick }) {
+  // areas: the fenced areas worked in, then the places outside the fences
+  const OUT = 'Outside the fences';
+  const key = (p) => p.area || OUT;
+  const mine = (d) => d.machines.filter(pick);
+  const names = [...new Set(cols.flatMap(({ d }) => mine(d).flatMap((m) => m.places.map(key))))]
+    .sort((a, b) => (a === OUT) - (b === OUT) || (a === 'DEPO') - (b === 'DEPO') || a.localeCompare(b));
+  return `<thead><tr><th class="rowh" scope="col">Area</th>${cols.map((c) => mtDayHead(c.d, c.i)).join('')}<th class="n" scope="col">Machine-days</th></tr></thead><tbody>` +
+    names.map((a) => {
+      let n = 0;
+      const cells = cols.map(({ d, i }) => {
+        const ms = mine(d).filter((m) => m.places.some((p) => key(p) === a));
+        if (!ms.length) return '<td class="none">–</td>';
+        n += ms.length;
+        return `<td><button class="mt-cell area" data-day="${i}" data-m="${ms[0].short}" title="${mtEsc(ms.map((m) => `${m.short} ${m.name}`).join(', '))}">` +
+          `${ms.map((m) => `<span class="mt-badge" style="background:${mColor(m.short)}">${m.short}</span>`).join('')}</button></td>`;
+      }).join('');
+      const sub = a === OUT ? 'access roads, loading spots' : (DATA.areas.find((x) => x.id === a)?.mv || []).join(', ');
+      return `<tr><th class="rowh mt-area" scope="row"><b>${mtEsc(a)}</b>${sub ? `<br><span class="hint">${mtEsc(sub)}</span>` : ''}</th>${cells}<td class="n">${n}</td></tr>`;
+    }).join('') + '</tbody>';
 }
 
 function setLayer(key, on) {
@@ -894,7 +932,9 @@ function areaTotals(mode) {
       <td class="n"><b>${fmt(DATA.grass_cut.covered_m2 / 1e4, 2)}</b></td><td></td></tr>`;
   }
   if (mode === 'machines' && DATA.machines) {
-    return `<tr><td colspan="3"><b>All machine-days</b><br><span class="hint">incl. pickup points outside the fences</span></td>
+    const ps = DATA.machines.po_scope;
+    return `<tr><td colspan="3"><b>All machine-days</b><br><span class="hint">incl. pickup points outside the fences${ps
+      ? ` · PO machines ${ps.machine_days}, extras ${DATA.machines.extras.machine_days}` : ''}</span></td>
       <td class="n"><b>${DATA.machines.machine_days}</b></td><td></td></tr>`;
   }
   return `<tr><td colspan="3"><b>Total</b></td><td class="n"><b>${sum('soil_n') + sum('sand_n')}</b></td><td class="n"><b>${fmt(sum('soil_m3') + sum('sand_m3'), 1)}</b></td></tr>`;
